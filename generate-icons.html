@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>توليد أيقونات PWA</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        canvas {
+            border: 2px solid #ddd;
+            margin: 10px;
+            border-radius: 10px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        h1 {
+            color: #1e293b;
+            margin-bottom: 20px;
+        }
+        .instructions {
+            background: #eff6ff;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 توليد أيقونات التطبيق</h1>
+
+        <div class="instructions">
+            <strong>التعليمات:</strong><br>
+            1. اضغط على زر "توليد الأيقونات"<br>
+            2. سيتم عرض الأيقونات بأحجام مختلفة<br>
+            3. اضغط بزر الماوس الأيمن على كل أيقونة واختر "Save image as..."<br>
+            4. احفظ الأيقونات في مجلد public باسم icon-192.png و icon-512.png
+        </div>
+
+        <button onclick="generateIcons()">توليد الأيقونات</button>
+
+        <div id="icons"></div>
+    </div>
+
+    <script>
+        function generateIcons() {
+            const sizes = [192, 512];
+            const iconsDiv = document.getElementById('icons');
+            iconsDiv.innerHTML = '';
+
+            sizes.forEach(size => {
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+
+                // Background with rounded corners
+                const cornerRadius = size * 0.25;
+                ctx.fillStyle = '#2563eb';
+                roundRect(ctx, 0, 0, size, size, cornerRadius);
+                ctx.fill();
+
+                // Draw calculator/accounting icon
+                const padding = size * 0.15;
+                const width = size - (padding * 2);
+                const height = size - (padding * 2);
+
+                // White calculator body
+                ctx.fillStyle = 'white';
+                const bodyRadius = size * 0.1;
+                roundRect(ctx, padding, padding, width, height, bodyRadius);
+                ctx.fill();
+
+                // Calculator display area
+                ctx.fillStyle = '#dbeafe';
+                const displayHeight = height * 0.25;
+                roundRect(ctx, padding + width * 0.1, padding + height * 0.1, width * 0.8, displayHeight, bodyRadius * 0.5);
+                ctx.fill();
+
+                // Calculator buttons
+                ctx.fillStyle = '#2563eb';
+                const buttonSize = width * 0.15;
+                const buttonGap = width * 0.08;
+                const startX = padding + width * 0.15;
+                const startY = padding + height * 0.45;
+
+                // Draw 3x3 grid of buttons
+                for (let row = 0; row < 3; row++) {
+                    for (let col = 0; col < 3; col++) {
+                        const x = startX + (col * (buttonSize + buttonGap));
+                        const y = startY + (row * (buttonSize + buttonGap));
+                        roundRect(ctx, x, y, buttonSize, buttonSize, buttonSize * 0.2);
+                        ctx.fill();
+                    }
+                }
+
+                // Add label
+                const label = document.createElement('p');
+                label.textContent = `${size}x${size} - احفظ باسم: icon-${size}.png`;
+                label.style.fontWeight = 'bold';
+                label.style.marginTop = '10px';
+
+                const wrapper = document.createElement('div');
+                wrapper.style.display = 'inline-block';
+                wrapper.style.margin = '20px';
+                wrapper.appendChild(canvas);
+                wrapper.appendChild(label);
+
+                iconsDiv.appendChild(wrapper);
+            });
+        }
+
+        // Helper function to draw rounded rectangles
+        function roundRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+
+        // Auto-generate on load
+        window.onload = generateIcons;
+    </script>
+</body>
+</html>
