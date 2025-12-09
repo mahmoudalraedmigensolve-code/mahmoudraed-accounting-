@@ -30,7 +30,8 @@ interface GroupedProduct {
   soldQuantity: number;
   totalAvailableQuantity: number;
   unitPrice: number;
-  purchases: Array<{ id: string; quantity: number; unitSellingPrice: number }>;
+  unitPurchasePrice: number;
+  purchases: Array<{ id: string; quantity: number; unitSellingPrice: number; unitPurchasePrice: number }>;
 }
 
 export default function AddSalePage() {
@@ -76,6 +77,7 @@ export default function AddSalePage() {
           id: purchase.id,
           quantity: purchase.quantity,
           unitSellingPrice: purchase.unitSellingPrice,
+          unitPurchasePrice: purchase.unitPurchasePrice,
         });
       } else {
         groups.set(groupKey, {
@@ -84,11 +86,13 @@ export default function AddSalePage() {
           soldQuantity: 0,
           totalAvailableQuantity: purchase.quantity,
           unitPrice: purchase.unitSellingPrice,
+          unitPurchasePrice: purchase.unitPurchasePrice,
           purchases: [
             {
               id: purchase.id,
               quantity: purchase.quantity,
               unitSellingPrice: purchase.unitSellingPrice,
+              unitPurchasePrice: purchase.unitPurchasePrice,
             },
           ],
         });
@@ -460,7 +464,7 @@ export default function AddSalePage() {
                       >
                         <div className="font-medium">{product.productName}</div>
                         <div className="text-sm text-slate-500">
-                          السعر: {product.unitPrice.toFixed(2)} ج.م - متاح: {product.totalAvailableQuantity}
+                          سعر البيع: {product.unitPrice.toFixed(2)} ج.م - سعر الشراء: {product.unitPurchasePrice.toFixed(2)} ج.م - متاح: {product.totalAvailableQuantity}
                         </div>
                       </button>
                     ))}

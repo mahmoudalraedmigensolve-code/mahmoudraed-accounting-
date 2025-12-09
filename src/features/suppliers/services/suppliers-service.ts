@@ -12,15 +12,19 @@ import {
 import { db } from "@/lib/firebase/config";
 import { Supplier, SupplierPayment } from "../types";
 
-// Helper functions for collection paths
-const getSuppliersPath = (tenantId?: string) =>
-  tenantId ? `tenants/${tenantId}/suppliers` : "suppliers";
-const getPaymentsPath = (tenantId?: string) =>
-  tenantId ? `tenants/${tenantId}/supplierPayments` : "supplierPayments";
+// Helper functions for collection paths - tenantId is REQUIRED
+const getSuppliersPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/suppliers`;
+};
+const getPaymentsPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/supplierPayments`;
+};
 
 export const suppliersService = {
   // Fetch all suppliers for a user
-  async fetchSuppliers(userId: string, tenantId?: string): Promise<Supplier[]> {
+  async fetchSuppliers(userId: string, tenantId: string): Promise<Supplier[]> {
     try {
       const collectionPath = getSuppliersPath(tenantId);
       const q = query(
@@ -44,13 +48,13 @@ export const suppliersService = {
   // Create a new supplier
   async createSupplier(
     supplierData: Omit<Supplier, "id">,
-    tenantId?: string
+    tenantId: string
   ): Promise<string> {
     try {
       const collectionPath = getSuppliersPath(tenantId);
       const docRef = await addDoc(collection(db, collectionPath), {
         ...supplierData,
-        tenantId: tenantId || null,
+        tenantId,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -65,7 +69,7 @@ export const suppliersService = {
   async updateSupplierBalance(
     supplierId: string,
     newBalance: number,
-    tenantId?: string
+    tenantId: string
   ): Promise<void> {
     try {
       const collectionPath = getSuppliersPath(tenantId);
@@ -83,13 +87,13 @@ export const suppliersService = {
   // Record a payment to supplier
   async recordPayment(
     paymentData: Omit<SupplierPayment, "id">,
-    tenantId?: string
+    tenantId: string
   ): Promise<string> {
     try {
       const collectionPath = getPaymentsPath(tenantId);
       const docRef = await addDoc(collection(db, collectionPath), {
         ...paymentData,
-        tenantId: tenantId || null,
+        tenantId,
         paymentDate: Timestamp.now(),
       });
       return docRef.id;
@@ -102,7 +106,7 @@ export const suppliersService = {
   // Fetch all payments for a supplier
   async fetchSupplierPayments(
     supplierId: string,
-    tenantId?: string
+    tenantId: string
   ): Promise<SupplierPayment[]> {
     try {
       const collectionPath = getPaymentsPath(tenantId);
@@ -126,7 +130,7 @@ export const suppliersService = {
   // Fetch all payments for a user (for reports)
   async fetchAllPayments(
     userId: string,
-    tenantId?: string
+    tenantId: string
   ): Promise<SupplierPayment[]> {
     try {
       const collectionPath = getPaymentsPath(tenantId);

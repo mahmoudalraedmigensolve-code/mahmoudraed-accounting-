@@ -1,6 +1,5 @@
-// Sales Zustand Store
+// Sales Zustand Store - No persistence to ensure fresh data across devices
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { Sale, Customer, SaleFormData, SalesState, CustomerReceipt } from "../types";
 import {
   salesService,
@@ -9,8 +8,14 @@ import {
 } from "../services/sales-service";
 import { useTenantsStore } from "@/features/tenants/store/tenants-store";
 
-// Helper to get current tenant ID
-const getTenantId = () => useTenantsStore.getState().currentTenant?.id;
+// Helper to get current tenant ID - throws error if not available
+const getTenantId = (): string => {
+  const tenantId = useTenantsStore.getState().currentTenant?.id;
+  if (!tenantId) {
+    throw new Error("Tenant ID is required. Please make sure you are logged in.");
+  }
+  return tenantId;
+};
 
 interface SalesStore extends SalesState {
   // Sales Actions
@@ -42,469 +47,375 @@ interface SalesStore extends SalesState {
   clearError: () => void;
 }
 
-export const useSalesStore = create<SalesStore>()(
-  persist(
-    (set, get) => ({
-      // Initial State
-      sales: [],
-      customers: [],
-      receipts: [],
-      isLoading: false,
-      error: null,
+export const useSalesStore = create<SalesStore>()((set, get) => ({
+  // Initial State
+  sales: [],
+  customers: [],
+  receipts: [],
+  isLoading: false,
+  error: null,
 
-      // ============= Sales Actions =============
+  // ============= Sales Actions =============
 
-      /**
-       * Fetch all sales for a user
-       */
-      fetchSales: async (userId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          const sales = await salesService.fetchSales(userId, tenantId);
-          set({ sales, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
+  fetchSales: async (userId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const sales = await salesService.fetchSales(userId, tenantId);
+      set({ sales, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
 
-      /**
-       * Create a new sale
-       */
-      createSale: async (saleData: SaleFormData, userId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          // 1. Create or update customer
-          let customerId = saleData.customerId;
+  createSale: async (saleData: SaleFormData, userId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      let customerId = saleData.customerId;
 
-          if (!customerId) {
-            // Check if customer exists
-            const existingCustomer = await customersService.getCustomerByNameAndPhone(
-              saleData.customerName,
-              saleData.customerPhone,
-              userId,
-              tenantId
-            );
+      if (!customerId) {
+        const existingCustomer = await customersService.getCustomerByNameAndPhone(
+          saleData.customerName,
+          saleData.customerPhone,
+          userId,
+          tenantId
+        );
 
-            if (existingCustomer) {
-              customerId = existingCustomer.id;
-              // Update existing customer balance
-              await customersService.updateCustomerBalance(
-                customerId,
-                saleData.currentBalance,
-                tenantId
-              );
-            } else {
-              // Create new customer
-              customerId = await customersService.upsertCustomer(
-                {
-                  name: saleData.customerName,
-                  phone: saleData.customerPhone,
-                  totalBalance: saleData.currentBalance,
-                },
-                userId,
-                undefined,
-                tenantId
-              );
-            }
-          } else {
-            // Update existing customer balance
-            await customersService.updateCustomerBalance(
-              customerId,
-              saleData.currentBalance,
-              tenantId
-            );
-          }
-
-          // 2. Create sale with customerId
-          const saleId = await salesService.createSale(
-            { ...saleData, customerId },
-            userId,
+        if (existingCustomer) {
+          customerId = existingCustomer.id;
+          await customersService.updateCustomerBalance(
+            customerId,
+            saleData.currentBalance,
             tenantId
           );
-
-          // 3. Refresh sales and customers
-          await Promise.all([
-            get().fetchSales(userId),
-            get().fetchCustomers(userId),
-          ]);
-
-          set({ isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Update an existing sale
-       */
-      updateSale: async (saleId: string, saleData: Partial<SaleFormData>) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          await salesService.updateSale(saleId, saleData, tenantId);
-
-          // Update local state
-          const sales = get().sales.map((sale) =>
-            sale.id === saleId ? { ...sale, ...saleData } : sale
-          );
-          set({ sales, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Delete a sale
-       */
-      deleteSale: async (saleId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          // Find the sale to get customer info before deleting
-          const sale = get().sales.find((s) => s.id === saleId);
-
-          if (sale && sale.customerId) {
-            // Find the customer
-            const customer = get().customers.find((c) => c.id === sale.customerId);
-
-            if (customer) {
-              // Reduce customer balance by the current balance from this sale
-              const newBalance = customer.totalBalance - sale.currentBalance;
-              await customersService.updateCustomerBalance(sale.customerId, newBalance, tenantId);
-
-              // Update customers in local state
-              const customers = get().customers.map((c) =>
-                c.id === sale.customerId
-                  ? { ...c, totalBalance: newBalance }
-                  : c
-              );
-              set({ customers });
-            }
-          }
-
-          // Delete the sale from Firebase
-          await salesService.deleteSale(saleId, tenantId);
-
-          // Update local state
-          const sales = get().sales.filter((s) => s.id !== saleId);
-          set({ sales, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      // ============= Customers Actions =============
-
-      /**
-       * Fetch all customers for a user
-       */
-      fetchCustomers: async (userId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          const customers = await customersService.fetchCustomers(userId, tenantId);
-          set({ customers, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Get customer by name and phone
-       */
-      getCustomerByNameAndPhone: async (
-        name: string,
-        phone: string,
-        userId: string
-      ) => {
-        try {
-          const tenantId = getTenantId();
-          return await customersService.getCustomerByNameAndPhone(
-            name,
-            phone,
+        } else {
+          customerId = await customersService.upsertCustomer(
+            {
+              name: saleData.customerName,
+              phone: saleData.customerPhone,
+              totalBalance: saleData.currentBalance,
+            },
             userId,
+            undefined,
             tenantId
           );
-        } catch (error: any) {
-          console.error("Error getting customer:", error);
-          return null;
         }
-      },
+      } else {
+        await customersService.updateCustomerBalance(
+          customerId,
+          saleData.currentBalance,
+          tenantId
+        );
+      }
 
-      /**
-       * Update customer balance
-       */
-      updateCustomerBalance: async (customerId: string, newBalance: number) => {
-        try {
-          const tenantId = getTenantId();
-          await customersService.updateCustomerBalance(customerId, newBalance, tenantId);
+      await salesService.createSale(
+        { ...saleData, customerId },
+        userId,
+        tenantId
+      );
 
-          // Update local state
-          const customers = get().customers.map((customer) =>
-            customer.id === customerId
-              ? { ...customer, totalBalance: newBalance }
-              : customer
+      await Promise.all([
+        get().fetchSales(userId),
+        get().fetchCustomers(userId),
+      ]);
+
+      set({ isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  updateSale: async (saleId: string, saleData: Partial<SaleFormData>) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      await salesService.updateSale(saleId, saleData, tenantId);
+
+      const sales = get().sales.map((sale) =>
+        sale.id === saleId ? { ...sale, ...saleData } : sale
+      );
+      set({ sales, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  deleteSale: async (saleId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const sale = get().sales.find((s) => s.id === saleId);
+
+      if (sale && sale.customerId) {
+        const customer = get().customers.find((c) => c.id === sale.customerId);
+
+        if (customer) {
+          const newBalance = customer.totalBalance - sale.currentBalance;
+          await customersService.updateCustomerBalance(sale.customerId, newBalance, tenantId);
+
+          const customers = get().customers.map((c) =>
+            c.id === sale.customerId
+              ? { ...c, totalBalance: newBalance }
+              : c
           );
           set({ customers });
-        } catch (error: any) {
-          set({ error: error.message });
-          throw error;
         }
-      },
+      }
 
-      /**
-       * Add payment to customer (reduce their balance and create payment invoice)
-       */
-      addPaymentToCustomer: async (customerId: string, paymentAmount: number) => {
-        try {
-          const tenantId = getTenantId();
-          const customer = get().customers.find((c) => c.id === customerId);
-          if (!customer) {
-            throw new Error("العميل غير موجود");
-          }
+      await salesService.deleteSale(saleId, tenantId);
 
-          // Get customer's last invoice number to generate next one
-          const customerSales = get().sales.filter((s) => s.customerId === customerId);
-          let nextInvoiceNumber = "1";
+      const sales = get().sales.filter((s) => s.id !== saleId);
+      set({ sales, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
 
-          if (customerSales.length > 0) {
-            // Sort by invoice number and get the last one
-            const sortedSales = [...customerSales].sort((a, b) => {
-              const numA = parseInt(a.invoiceNumber) || 0;
-              const numB = parseInt(b.invoiceNumber) || 0;
-              return numB - numA;
-            });
+  // ============= Customers Actions =============
 
-            const lastInvoiceNum = parseInt(sortedSales[0].invoiceNumber) || 0;
-            nextInvoiceNumber = (lastInvoiceNum + 1).toString();
-          }
+  fetchCustomers: async (userId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const customers = await customersService.fetchCustomers(userId, tenantId);
+      set({ customers, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
 
-          // Create payment invoice
-          const paymentInvoice = {
-            invoiceNumber: nextInvoiceNumber,
-            customerId: customer.id,
-            customerName: customer.name,
-            customerPhone: customer.phone,
-            invoiceType: "payment" as const,
-            items: [], // No items for payment invoice
-            totalAmount: -paymentAmount, // Negative to indicate payment
-            paidAmount: paymentAmount,
-            deferredAmount: 0,
-            previousBalance: customer.totalBalance,
-            currentBalance: customer.totalBalance - paymentAmount,
-          };
+  getCustomerByNameAndPhone: async (
+    name: string,
+    phone: string,
+    userId: string
+  ) => {
+    try {
+      const tenantId = getTenantId();
+      return await customersService.getCustomerByNameAndPhone(
+        name,
+        phone,
+        userId,
+        tenantId
+      );
+    } catch (error: any) {
+      console.error("Error getting customer:", error);
+      return null;
+    }
+  },
 
-          // Get user from auth (we need userId)
-          const userId = customer.userId;
+  updateCustomerBalance: async (customerId: string, newBalance: number) => {
+    try {
+      const tenantId = getTenantId();
+      await customersService.updateCustomerBalance(customerId, newBalance, tenantId);
 
-          // Create the payment invoice in Firebase
-          await salesService.createSale(paymentInvoice, userId, tenantId);
+      const customers = get().customers.map((customer) =>
+        customer.id === customerId
+          ? { ...customer, totalBalance: newBalance }
+          : customer
+      );
+      set({ customers });
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
 
-          // Update customer balance
-          const newBalance = customer.totalBalance - paymentAmount;
+  addPaymentToCustomer: async (customerId: string, paymentAmount: number) => {
+    try {
+      const tenantId = getTenantId();
+      const customer = get().customers.find((c) => c.id === customerId);
+      if (!customer) {
+        throw new Error("العميل غير موجود");
+      }
+
+      const customerSales = get().sales.filter((s) => s.customerId === customerId);
+      let nextInvoiceNumber = "1";
+
+      if (customerSales.length > 0) {
+        const sortedSales = [...customerSales].sort((a, b) => {
+          const numA = parseInt(a.invoiceNumber) || 0;
+          const numB = parseInt(b.invoiceNumber) || 0;
+          return numB - numA;
+        });
+
+        const lastInvoiceNum = parseInt(sortedSales[0].invoiceNumber) || 0;
+        nextInvoiceNumber = (lastInvoiceNum + 1).toString();
+      }
+
+      const paymentInvoice = {
+        invoiceNumber: nextInvoiceNumber,
+        customerId: customer.id,
+        customerName: customer.name,
+        customerPhone: customer.phone,
+        invoiceType: "payment" as const,
+        items: [],
+        totalAmount: -paymentAmount,
+        paidAmount: paymentAmount,
+        deferredAmount: 0,
+        previousBalance: customer.totalBalance,
+        currentBalance: customer.totalBalance - paymentAmount,
+      };
+
+      const userId = customer.userId;
+
+      await salesService.createSale(paymentInvoice, userId, tenantId);
+
+      const newBalance = customer.totalBalance - paymentAmount;
+      await customersService.updateCustomerBalance(customerId, newBalance, tenantId);
+
+      const updatedSales = await salesService.fetchSales(userId, tenantId);
+
+      const customers = get().customers.map((c) =>
+        c.id === customerId ? { ...c, totalBalance: newBalance } : c
+      );
+      set({ customers, sales: updatedSales });
+    } catch (error: any) {
+      set({ error: error.message });
+      throw error;
+    }
+  },
+
+  deleteCustomer: async (customerId: string, userId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const customerSales = get().sales.filter((s) => s.customerId === customerId);
+
+      for (const sale of customerSales) {
+        await salesService.deleteSale(sale.id, tenantId);
+      }
+
+      await customersService.deleteCustomer(customerId, tenantId);
+
+      const customers = get().customers.filter((c) => c.id !== customerId);
+      const sales = get().sales.filter((s) => s.customerId !== customerId);
+
+      set({ customers, sales, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  // ============= Receipts Actions =============
+
+  fetchCustomerReceipts: async (customerId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const receipts = await receiptsService.fetchCustomerReceipts(customerId, tenantId);
+      set({ receipts, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  fetchAllReceipts: async (userId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const receipts = await receiptsService.fetchAllReceipts(userId, tenantId);
+      set({ receipts, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  createReceipt: async (
+    receiptData: Omit<CustomerReceipt, "id" | "createdAt" | "updatedAt">,
+    userId: string
+  ) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      await receiptsService.createReceipt(receiptData, tenantId);
+
+      await customersService.updateCustomerBalance(
+        receiptData.customerId,
+        receiptData.currentBalance,
+        tenantId
+      );
+
+      await Promise.all([
+        get().fetchCustomerReceipts(receiptData.customerId),
+        get().fetchCustomers(userId),
+      ]);
+
+      set({ isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  updateReceipt: async (
+    receiptId: string,
+    receiptData: Partial<Omit<CustomerReceipt, "id" | "createdAt" | "updatedAt">>
+  ) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      await receiptsService.updateReceipt(receiptId, receiptData, tenantId);
+
+      const receipts = get().receipts.map((receipt) =>
+        receipt.id === receiptId ? { ...receipt, ...receiptData } : receipt
+      );
+      set({ receipts, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  deleteReceipt: async (receiptId: string, customerId: string, userId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const tenantId = getTenantId();
+      const receipt = get().receipts.find((r) => r.id === receiptId);
+
+      if (receipt) {
+        const customer = get().customers.find((c) => c.id === customerId);
+
+        if (customer) {
+          const newBalance = customer.totalBalance + receipt.paidAmount;
           await customersService.updateCustomerBalance(customerId, newBalance, tenantId);
 
-          // Refresh sales to get the new invoice
-          const updatedSales = await salesService.fetchSales(userId, tenantId);
-
-          // Update local state
           const customers = get().customers.map((c) =>
             c.id === customerId ? { ...c, totalBalance: newBalance } : c
           );
-          set({ customers, sales: updatedSales });
-        } catch (error: any) {
-          set({ error: error.message });
-          throw error;
+          set({ customers });
         }
-      },
+      }
 
-      /**
-       * Delete a customer and all their invoices
-       */
-      deleteCustomer: async (customerId: string, userId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          // Find all sales for this customer
-          const customerSales = get().sales.filter((s) => s.customerId === customerId);
+      await receiptsService.deleteReceipt(receiptId, tenantId);
 
-          // Delete all customer invoices first
-          for (const sale of customerSales) {
-            await salesService.deleteSale(sale.id, tenantId);
-          }
-
-          // Delete the customer from Firebase
-          await customersService.deleteCustomer(customerId, tenantId);
-
-          // Update local state - remove customer and their sales
-          const customers = get().customers.filter((c) => c.id !== customerId);
-          const sales = get().sales.filter((s) => s.customerId !== customerId);
-
-          set({ customers, sales, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      // ============= Receipts Actions =============
-
-      /**
-       * Fetch all receipts for a specific customer
-       */
-      fetchCustomerReceipts: async (customerId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          const receipts = await receiptsService.fetchCustomerReceipts(customerId, tenantId);
-          set({ receipts, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Fetch all receipts for a user
-       */
-      fetchAllReceipts: async (userId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          const receipts = await receiptsService.fetchAllReceipts(userId, tenantId);
-          set({ receipts, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Create a new customer receipt
-       */
-      createReceipt: async (
-        receiptData: Omit<CustomerReceipt, "id" | "createdAt" | "updatedAt">,
-        userId: string
-      ) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          // 1. Create the receipt
-          await receiptsService.createReceipt(receiptData, tenantId);
-
-          // 2. Update customer balance (reduce by payment amount)
-          await customersService.updateCustomerBalance(
-            receiptData.customerId,
-            receiptData.currentBalance,
-            tenantId
-          );
-
-          // 3. Refresh receipts and customers
-          await Promise.all([
-            get().fetchCustomerReceipts(receiptData.customerId),
-            get().fetchCustomers(userId),
-          ]);
-
-          set({ isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Update an existing receipt
-       */
-      updateReceipt: async (
-        receiptId: string,
-        receiptData: Partial<Omit<CustomerReceipt, "id" | "createdAt" | "updatedAt">>
-      ) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          await receiptsService.updateReceipt(receiptId, receiptData, tenantId);
-
-          // Update local state
-          const receipts = get().receipts.map((receipt) =>
-            receipt.id === receiptId ? { ...receipt, ...receiptData } : receipt
-          );
-          set({ receipts, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Delete a receipt and restore customer balance
-       */
-      deleteReceipt: async (receiptId: string, customerId: string, userId: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const tenantId = getTenantId();
-          // Find the receipt to get payment amount
-          const receipt = get().receipts.find((r) => r.id === receiptId);
-
-          if (receipt) {
-            // Find the customer
-            const customer = get().customers.find((c) => c.id === customerId);
-
-            if (customer) {
-              // Restore customer balance by adding back the payment amount
-              const newBalance = customer.totalBalance + receipt.paidAmount;
-              await customersService.updateCustomerBalance(customerId, newBalance, tenantId);
-
-              // Update customers in local state
-              const customers = get().customers.map((c) =>
-                c.id === customerId ? { ...c, totalBalance: newBalance } : c
-              );
-              set({ customers });
-            }
-          }
-
-          // Delete the receipt from Firebase
-          await receiptsService.deleteReceipt(receiptId, tenantId);
-
-          // Update local state - remove receipt
-          const receipts = get().receipts.filter((r) => r.id !== receiptId);
-          set({ receipts, isLoading: false });
-        } catch (error: any) {
-          set({ error: error.message, isLoading: false });
-          throw error;
-        }
-      },
-
-      /**
-       * Generate unique receipt number
-       */
-      generateReceiptNumber: async (userId: string) => {
-        try {
-          const tenantId = getTenantId();
-          return await receiptsService.generateReceiptNumber(userId, tenantId);
-        } catch (error: any) {
-          console.error("Error generating receipt number:", error);
-          return `REC-${Date.now()}`;
-        }
-      },
-
-      // ============= Utility =============
-
-      clearError: () => set({ error: null }),
-    }),
-    {
-      name: "sales-store",
-      partialize: (state) => ({
-        sales: state.sales,
-        customers: state.customers,
-        receipts: state.receipts,
-      }),
+      const receipts = get().receipts.filter((r) => r.id !== receiptId);
+      set({ receipts, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
     }
-  )
-);
+  },
+
+  generateReceiptNumber: async (userId: string) => {
+    try {
+      const tenantId = getTenantId();
+      return await receiptsService.generateReceiptNumber(userId, tenantId);
+    } catch (error: any) {
+      console.error("Error generating receipt number:", error);
+      return `REC-${Date.now()}`;
+    }
+  },
+
+  // ============= Utility =============
+
+  clearError: () => set({ error: null }),
+}));

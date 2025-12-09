@@ -14,13 +14,19 @@ import {
 import { db } from "@/lib/firebase/config";
 import { Sale, SaleFormData, Customer, CustomerReceipt } from "../types";
 
-// Helper functions for collection paths
-const getSalesPath = (tenantId?: string) =>
-  tenantId ? `tenants/${tenantId}/sales` : "sales";
-const getCustomersPath = (tenantId?: string) =>
-  tenantId ? `tenants/${tenantId}/customers` : "customers";
-const getReceiptsPath = (tenantId?: string) =>
-  tenantId ? `tenants/${tenantId}/customer_receipts` : "customer_receipts";
+// Helper functions for collection paths - tenantId is REQUIRED
+const getSalesPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/sales`;
+};
+const getCustomersPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/customers`;
+};
+const getReceiptsPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/customer_receipts`;
+};
 
 // ============= Sales Operations =============
 
@@ -31,7 +37,7 @@ export const salesService = {
   async createSale(
     saleData: SaleFormData,
     userId: string,
-    tenantId?: string
+    tenantId: string
   ): Promise<string> {
     try {
       const now = Timestamp.now();
@@ -40,7 +46,7 @@ export const salesService = {
       const docData = {
         ...saleData,
         userId,
-        tenantId: tenantId || null,
+        tenantId,
         createdAt: now,
         updatedAt: now,
       };
@@ -56,7 +62,7 @@ export const salesService = {
   /**
    * Fetch all sales for a specific user
    */
-  async fetchSales(userId: string, tenantId?: string): Promise<Sale[]> {
+  async fetchSales(userId: string, tenantId: string): Promise<Sale[]> {
     try {
       const collectionPath = getSalesPath(tenantId);
       const q = query(
@@ -88,7 +94,7 @@ export const salesService = {
   async updateSale(
     saleId: string,
     saleData: Partial<SaleFormData>,
-    tenantId?: string
+    tenantId: string
   ): Promise<void> {
     try {
       const collectionPath = getSalesPath(tenantId);
@@ -106,7 +112,7 @@ export const salesService = {
   /**
    * Delete a sale
    */
-  async deleteSale(saleId: string, tenantId?: string): Promise<void> {
+  async deleteSale(saleId: string, tenantId: string): Promise<void> {
     try {
       const collectionPath = getSalesPath(tenantId);
       const saleRef = doc(db, collectionPath, saleId);
@@ -131,8 +137,8 @@ export const customersService = {
       totalBalance: number;
     },
     userId: string,
-    customerId?: string,
-    tenantId?: string
+    customerId: string | undefined,
+    tenantId: string
   ): Promise<string> {
     try {
       const now = Timestamp.now();
@@ -152,7 +158,7 @@ export const customersService = {
       const docData = {
         ...customerData,
         userId,
-        tenantId: tenantId || null,
+        tenantId,
         createdAt: now,
         updatedAt: now,
       };
@@ -168,7 +174,7 @@ export const customersService = {
   /**
    * Fetch all customers for a specific user
    */
-  async fetchCustomers(userId: string, tenantId?: string): Promise<Customer[]> {
+  async fetchCustomers(userId: string, tenantId: string): Promise<Customer[]> {
     try {
       const collectionPath = getCustomersPath(tenantId);
       const q = query(
@@ -201,7 +207,7 @@ export const customersService = {
     name: string,
     phone: string,
     userId: string,
-    tenantId?: string
+    tenantId: string
   ): Promise<Customer | null> {
     try {
       const collectionPath = getCustomersPath(tenantId);
@@ -239,7 +245,7 @@ export const customersService = {
   async updateCustomerBalance(
     customerId: string,
     newBalance: number,
-    tenantId?: string
+    tenantId: string
   ): Promise<void> {
     try {
       const collectionPath = getCustomersPath(tenantId);
@@ -257,7 +263,7 @@ export const customersService = {
   /**
    * Delete a customer
    */
-  async deleteCustomer(customerId: string, tenantId?: string): Promise<void> {
+  async deleteCustomer(customerId: string, tenantId: string): Promise<void> {
     try {
       const collectionPath = getCustomersPath(tenantId);
       const customerRef = doc(db, collectionPath, customerId);
@@ -275,7 +281,7 @@ export const receiptsService = {
   /**
    * Generate unique receipt number
    */
-  async generateReceiptNumber(userId: string, tenantId?: string): Promise<string> {
+  async generateReceiptNumber(userId: string, tenantId: string): Promise<string> {
     try {
       const collectionPath = getReceiptsPath(tenantId);
       const q = query(
@@ -305,7 +311,7 @@ export const receiptsService = {
    */
   async createReceipt(
     receiptData: Omit<CustomerReceipt, "id" | "createdAt" | "updatedAt">,
-    tenantId?: string
+    tenantId: string
   ): Promise<string> {
     try {
       const now = Timestamp.now();
@@ -313,7 +319,7 @@ export const receiptsService = {
 
       const docData = {
         ...receiptData,
-        tenantId: tenantId || null,
+        tenantId,
         receiptDate: Timestamp.fromDate(receiptData.receiptDate),
         createdAt: now,
         updatedAt: now,
@@ -332,7 +338,7 @@ export const receiptsService = {
    */
   async fetchCustomerReceipts(
     customerId: string,
-    tenantId?: string
+    tenantId: string
   ): Promise<CustomerReceipt[]> {
     try {
       const collectionPath = getReceiptsPath(tenantId);
@@ -363,7 +369,7 @@ export const receiptsService = {
   /**
    * Fetch all receipts for a specific user
    */
-  async fetchAllReceipts(userId: string, tenantId?: string): Promise<CustomerReceipt[]> {
+  async fetchAllReceipts(userId: string, tenantId: string): Promise<CustomerReceipt[]> {
     try {
       const collectionPath = getReceiptsPath(tenantId);
       const q = query(
@@ -396,7 +402,7 @@ export const receiptsService = {
   async updateReceipt(
     receiptId: string,
     receiptData: Partial<Omit<CustomerReceipt, "id" | "createdAt" | "updatedAt">>,
-    tenantId?: string
+    tenantId: string
   ): Promise<void> {
     try {
       const collectionPath = getReceiptsPath(tenantId);
@@ -420,7 +426,7 @@ export const receiptsService = {
   /**
    * Delete a receipt
    */
-  async deleteReceipt(receiptId: string, tenantId?: string): Promise<void> {
+  async deleteReceipt(receiptId: string, tenantId: string): Promise<void> {
     try {
       const collectionPath = getReceiptsPath(tenantId);
       const receiptRef = doc(db, collectionPath, receiptId);

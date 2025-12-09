@@ -26,9 +26,12 @@ import { InvoiceType, InvoiceItem } from "@/features/sales/types";
 
 interface GroupedProduct {
   productName: string;
+  purchasedQuantity: number;
+  soldQuantity: number;
   totalAvailableQuantity: number;
   unitPrice: number;
-  purchases: Array<{ id: string; quantity: number; unitSellingPrice: number }>;
+  unitPurchasePrice: number;
+  purchases: Array<{ id: string; quantity: number; unitSellingPrice: number; unitPurchasePrice: number }>;
 }
 
 export default function EditSalePage() {
@@ -89,39 +92,68 @@ export default function EditSalePage() {
     }
   }, [sale]);
 
-  // Group products by name and calculate available quantities
+  // Group products by name AND price to handle same product with different prices
   const groupedProducts = useMemo<GroupedProduct[]>(() => {
     const groups = new Map<string, GroupedProduct>();
 
+    // Add purchased quantities - use productName + unitSellingPrice as key
     purchases.forEach((purchase) => {
-      const existing = groups.get(purchase.productName);
+      const groupKey = `${purchase.productName}|${purchase.unitSellingPrice}`;
+      const existing = groups.get(groupKey);
       if (existing) {
-        existing.totalAvailableQuantity += purchase.quantity;
+        existing.purchasedQuantity += purchase.quantity;
         existing.purchases.push({
           id: purchase.id,
           quantity: purchase.quantity,
           unitSellingPrice: purchase.unitSellingPrice,
+          unitPurchasePrice: purchase.unitPurchasePrice,
         });
       } else {
-        groups.set(purchase.productName, {
+        groups.set(groupKey, {
           productName: purchase.productName,
+          purchasedQuantity: purchase.quantity,
+          soldQuantity: 0,
           totalAvailableQuantity: purchase.quantity,
           unitPrice: purchase.unitSellingPrice,
+          unitPurchasePrice: purchase.unitPurchasePrice,
           purchases: [
             {
               id: purchase.id,
               quantity: purchase.quantity,
               unitSellingPrice: purchase.unitSellingPrice,
+              unitPurchasePrice: purchase.unitPurchasePrice,
             },
           ],
         });
       }
     });
 
-    return Array.from(groups.values()).sort((a, b) =>
-      a.productName.localeCompare(b.productName, "ar")
-    );
-  }, [purchases]);
+    // Subtract sold quantities (exclude payment invoices and current sale being edited)
+    sales
+      .filter((s) => s.invoiceType !== "payment" && s.id !== saleId)
+      .forEach((s) => {
+        s.items.forEach((item) => {
+          const groupKey = `${item.productName}|${item.unitPrice}`;
+          const existing = groups.get(groupKey);
+          if (existing) {
+            existing.soldQuantity += item.quantity;
+          }
+        });
+      });
+
+    // Calculate available quantity
+    groups.forEach((product) => {
+      product.totalAvailableQuantity = product.purchasedQuantity - product.soldQuantity;
+    });
+
+    return Array.from(groups.values())
+      .filter((product) => product.totalAvailableQuantity > 0)
+      .sort((a, b) => {
+        const nameCompare = a.productName.localeCompare(b.productName, "ar");
+        if (nameCompare !== 0) return nameCompare;
+        return a.unitPrice - b.unitPrice;
+      });
+  }, [purchases, sales, saleId]);
 
   // Filter products based on search
   const filteredProducts = useMemo(() => {
@@ -171,12 +203,13 @@ export default function EditSalePage() {
 
   // Handle product selection
   const handleSelectProduct = (product: GroupedProduct) => {
+    // Check if product with same name AND price already selected
     const existingItem = selectedItems.find(
-      (item) => item.productName === product.productName
+      (item) => item.productName === product.productName && item.unitPrice === product.unitPrice
     );
 
     if (existingItem) {
-      setError("المنتج موجود بالفعل في القائمة");
+      setError("المنتج بنفس السعر موجود بالفعل في القائمة");
       setTimeout(() => setError(null), 3000);
       return;
     }
@@ -196,10 +229,10 @@ export default function EditSalePage() {
   };
 
   // Handle item quantity change
-  const handleItemQuantityChange = (productName: string, quantity: number) => {
+  const handleItemQuantityChange = (productName: string, unitPrice: number, quantity: number) => {
     setSelectedItems(
       selectedItems.map((item) => {
-        if (item.productName === productName) {
+        if (item.productName === productName && item.unitPrice === unitPrice) {
           const newQuantity = Math.max(1, Math.min(quantity, item.availableQuantity));
           return {
             ...item,
@@ -213,8 +246,8 @@ export default function EditSalePage() {
   };
 
   // Handle remove item
-  const handleRemoveItem = (productName: string) => {
-    setSelectedItems(selectedItems.filter((item) => item.productName !== productName));
+  const handleRemoveItem = (productName: string, unitPrice: number) => {
+    setSelectedItems(selectedItems.filter((item) => !(item.productName === productName && item.unitPrice === unitPrice)));
   };
 
   // Handle form submission
@@ -443,14 +476,14 @@ export default function EditSalePage() {
                   <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-60 overflow-auto">
                     {filteredProducts.map((product) => (
                       <button
-                        key={product.productName}
+                        key={`${product.productName}-${product.unitPrice}`}
                         type="button"
                         className="w-full px-4 py-2 text-right hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
                         onClick={() => handleSelectProduct(product)}
                       >
                         <div className="font-medium">{product.productName}</div>
                         <div className="text-sm text-slate-500">
-                          السعر: {product.unitPrice.toFixed(2)} ج.م - متاح: {product.totalAvailableQuantity}
+                          سعر البيع: {product.unitPrice.toFixed(2)} ج.م - سعر الشراء: {product.unitPurchasePrice.toFixed(2)} ج.م - متاح: {product.totalAvailableQuantity}
                         </div>
                       </button>
                     ))}
@@ -488,7 +521,7 @@ export default function EditSalePage() {
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {selectedItems.map((item) => (
-                        <tr key={item.productName}>
+                        <tr key={`${item.productName}-${item.unitPrice}`}>
                           <td className="px-4 py-2 text-right">{item.productName}</td>
                           <td className="px-4 py-2 text-center">
                             {item.unitPrice.toFixed(2)} ج.م
@@ -502,6 +535,7 @@ export default function EditSalePage() {
                               onChange={(e) =>
                                 handleItemQuantityChange(
                                   item.productName,
+                                  item.unitPrice,
                                   Number(e.target.value)
                                 )
                               }
@@ -519,7 +553,7 @@ export default function EditSalePage() {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleRemoveItem(item.productName)}
+                              onClick={() => handleRemoveItem(item.productName, item.unitPrice)}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
                               <svg

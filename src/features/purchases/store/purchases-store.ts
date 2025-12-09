@@ -4,8 +4,14 @@ import { purchasesService } from "../services/purchases-service";
 import { Purchase, PurchaseFormData, PurchasesState } from "../types";
 import { useTenantsStore } from "@/features/tenants/store/tenants-store";
 
-// Helper to get current tenant ID
-const getTenantId = () => useTenantsStore.getState().currentTenant?.id;
+// Helper to get current tenant ID - throws error if not available
+const getTenantId = (): string => {
+  const tenantId = useTenantsStore.getState().currentTenant?.id;
+  if (!tenantId) {
+    throw new Error("Tenant ID is required. Please make sure you are logged in.");
+  }
+  return tenantId;
+};
 
 interface PurchasesStore extends PurchasesState {
   // Actions
@@ -14,6 +20,7 @@ interface PurchasesStore extends PurchasesState {
   updatePurchase: (purchaseId: string, purchaseData: Partial<PurchaseFormData>) => Promise<void>;
   deletePurchase: (purchaseId: string) => Promise<void>;
   deleteSupplier: (userId: string, supplierName: string) => Promise<void>;
+  deleteProductByName: (userId: string, productName: string) => Promise<void>;
   updateSellingPriceByProductName: (userId: string, productName: string, newUnitSellingPrice: number) => Promise<void>;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
@@ -97,6 +104,21 @@ export const usePurchasesStore = create<PurchasesStore>()((set, get) => ({
 
       // Remove all purchases with this supplier from local state
       const purchases = get().purchases.filter((p) => p.supplierName !== supplierName);
+      set({ purchases, isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  deleteProductByName: async (userId: string, productName: string) => {
+    try {
+      set({ isLoading: true, error: null });
+      const tenantId = getTenantId();
+      await purchasesService.deleteProductByName(userId, productName, tenantId);
+
+      // Remove all purchases with this product from local state
+      const purchases = get().purchases.filter((p) => p.productName !== productName);
       set({ purchases, isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });

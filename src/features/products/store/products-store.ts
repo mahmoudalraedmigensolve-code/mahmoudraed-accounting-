@@ -3,15 +3,25 @@ import { productsService } from "../services/products-service";
 import { Product, ProductFormData, ProductsState } from "../types";
 import { useTenantsStore } from "@/features/tenants/store/tenants-store";
 
-// Helper to get current tenant ID
-const getTenantId = () => useTenantsStore.getState().currentTenant?.id;
+// Helper to get current tenant ID - throws error if not available
+const getTenantId = (): string => {
+  const tenantId = useTenantsStore.getState().currentTenant?.id;
+  if (!tenantId) {
+    throw new Error("Tenant ID is required. Please make sure you are logged in.");
+  }
+  return tenantId;
+};
 
 interface ProductsStore extends ProductsState {
+  // Hidden products list
+  hiddenProducts: string[];
   // Actions
   fetchProducts: (userId: string) => Promise<void>;
+  fetchHiddenProducts: (userId: string) => Promise<void>;
   createProduct: (productData: ProductFormData, userId: string) => Promise<void>;
   updateProduct: (productId: string, productData: Partial<ProductFormData>) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
+  hideProduct: (productName: string, userId: string) => Promise<void>;
   setLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
 }
@@ -19,6 +29,7 @@ interface ProductsStore extends ProductsState {
 export const useProductsStore = create<ProductsStore>()((set, get) => ({
   // Initial State
   products: [],
+  hiddenProducts: [],
   isLoading: false,
   error: null,
 
@@ -94,6 +105,31 @@ export const useProductsStore = create<ProductsStore>()((set, get) => ({
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
       throw error;
+    }
+  },
+
+  hideProduct: async (productName: string, userId: string) => {
+    try {
+      set({ isLoading: true, error: null });
+      const tenantId = getTenantId();
+      await productsService.hideProduct(productName, userId, tenantId);
+      set((state) => ({
+        hiddenProducts: [...state.hiddenProducts, productName],
+        isLoading: false,
+      }));
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  fetchHiddenProducts: async (userId: string) => {
+    try {
+      const tenantId = getTenantId();
+      const hiddenProducts = await productsService.fetchHiddenProducts(userId, tenantId);
+      set({ hiddenProducts });
+    } catch (error: any) {
+      set({ error: error.message });
     }
   },
 

@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const {
     settings,
     fetchSettings,
+    fetchCompanySettings,
     updateExchangeRatesFromApi,
     updateExchangeRatesManual,
   } = useSettingsStore();
@@ -20,8 +21,9 @@ export default function SettingsPage() {
   useEffect(() => {
     if (user) {
       fetchSettings(user.uid);
+      fetchCompanySettings(user.uid);
     }
-  }, [user, fetchSettings]);
+  }, [user, fetchSettings, fetchCompanySettings]);
 
   if (!user) {
     return (

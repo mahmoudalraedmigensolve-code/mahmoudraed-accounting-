@@ -10,8 +10,15 @@ import {
 import { db } from "@/lib/firebase/firestore";
 import type { Settings, ExchangeRates, CompanySettings, CompanySettingsFormData } from "../types";
 
-const COLLECTION_NAME = "settings";
-const COMPANY_SETTINGS_COLLECTION = "company_settings";
+// Helper functions for collection paths - tenantId is REQUIRED
+const getSettingsPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/settings`;
+};
+const getCompanySettingsPath = (tenantId: string) => {
+  if (!tenantId) throw new Error("Tenant ID is required");
+  return `tenants/${tenantId}/company_settings`;
+};
 
 /**
  * Converts Firestore document to Settings object
@@ -40,9 +47,10 @@ function convertToSettings(id: string, data: any): Settings {
 /**
  * Fetches user settings from Firestore
  */
-export async function fetchSettings(userId: string): Promise<Settings | null> {
+export async function fetchSettings(userId: string, tenantId: string): Promise<Settings | null> {
   try {
-    const docRef = doc(db, COLLECTION_NAME, userId);
+    const collectionPath = getSettingsPath(tenantId);
+    const docRef = doc(db, collectionPath, userId);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
@@ -61,10 +69,12 @@ export async function fetchSettings(userId: string): Promise<Settings | null> {
  */
 export async function updateExchangeRates(
   userId: string,
-  rates: Omit<ExchangeRates, "lastUpdated">
+  rates: Omit<ExchangeRates, "lastUpdated">,
+  tenantId: string
 ): Promise<void> {
   try {
-    const docRef = doc(db, COLLECTION_NAME, userId);
+    const collectionPath = getSettingsPath(tenantId);
+    const docRef = doc(db, collectionPath, userId);
     const docSnap = await getDoc(docRef);
 
     const now = new Date();
@@ -103,10 +113,11 @@ export async function updateExchangeRates(
 /**
  * Fetches company settings from Firestore
  */
-export async function fetchCompanySettings(userId: string): Promise<CompanySettings | null> {
+export async function fetchCompanySettings(userId: string, tenantId: string): Promise<CompanySettings | null> {
   try {
     console.log('🔍 Fetching company settings from Firebase for user:', userId);
-    const docRef = doc(db, COMPANY_SETTINGS_COLLECTION, userId);
+    const collectionPath = getCompanySettingsPath(tenantId);
+    const docRef = doc(db, collectionPath, userId);
     const docSnap = await getDoc(docRef);
 
     console.log('📦 Document exists:', docSnap.exists());
@@ -147,13 +158,15 @@ export async function fetchCompanySettings(userId: string): Promise<CompanySetti
  */
 export async function updateCompanySettings(
   userId: string,
-  settingsData: CompanySettingsFormData
+  settingsData: CompanySettingsFormData,
+  tenantId: string
 ): Promise<void> {
   try {
     console.log('💾 Updating company settings for user:', userId);
     console.log('📝 Settings data to save:', settingsData);
 
-    const docRef = doc(db, COMPANY_SETTINGS_COLLECTION, userId);
+    const collectionPath = getCompanySettingsPath(tenantId);
+    const docRef = doc(db, collectionPath, userId);
 
     await setDoc(
       docRef,
@@ -177,13 +190,15 @@ export async function updateCompanySettings(
  */
 export async function createCompanySettings(
   userId: string,
-  settingsData: CompanySettingsFormData
+  settingsData: CompanySettingsFormData,
+  tenantId: string
 ): Promise<void> {
   try {
     console.log('🆕 Creating new company settings for user:', userId);
     console.log('📝 Settings data to create:', settingsData);
 
-    const docRef = doc(db, COMPANY_SETTINGS_COLLECTION, userId);
+    const collectionPath = getCompanySettingsPath(tenantId);
+    const docRef = doc(db, collectionPath, userId);
 
     await setDoc(docRef, {
       ...settingsData,

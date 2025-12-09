@@ -11,11 +11,28 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAuthStore } from "@/features/auth/store/auth-store";
 import { usePurchasesStore } from "@/features/purchases/store/purchases-store";
 import { useProductsStore } from "@/features/products/store/products-store";
 import { useReactToPrint } from "react-to-print";
 import { InvoiceFooter } from "@/components/common/InvoiceFooter";
+import { MoreVertical, Trash2 } from "lucide-react";
 
 interface DisplayProduct {
   id: string;
@@ -28,7 +45,7 @@ export default function ProductsPage() {
   const printRef = useRef<HTMLDivElement>(null);
   const { user } = useAuthStore();
   const { purchases, fetchPurchases } = usePurchasesStore();
-  const { products: manualProducts, fetchProducts, createProduct, isLoading } = useProductsStore();
+  const { products: manualProducts, fetchProducts, createProduct, deleteProduct, hideProduct, hiddenProducts, fetchHiddenProducts, isLoading } = useProductsStore();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
@@ -37,20 +54,26 @@ export default function ProductsPage() {
     unitSellingPrice: 0,
   });
   const [error, setError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<DisplayProduct | null>(null);
 
   useEffect(() => {
     if (user) {
       fetchPurchases(user.uid);
       fetchProducts(user.uid);
+      fetchHiddenProducts(user.uid);
     }
-  }, [user, fetchPurchases, fetchProducts]);
+  }, [user, fetchPurchases, fetchProducts, fetchHiddenProducts]);
 
-  // Combine products from purchases and manual products
+  // Combine products from purchases and manual products (excluding hidden ones)
   const allProducts = useMemo<DisplayProduct[]>(() => {
     const productMap = new Map<string, DisplayProduct>();
 
-    // Add products from purchases
+    // Add products from purchases (skip hidden ones)
     purchases.forEach((purchase) => {
+      // Skip if product is hidden
+      if (hiddenProducts.includes(purchase.productName)) return;
+
       if (!productMap.has(purchase.productName)) {
         productMap.set(purchase.productName, {
           id: purchase.id,
@@ -80,7 +103,7 @@ export default function ProductsPage() {
     return Array.from(productMap.values()).sort((a, b) =>
       a.productName.localeCompare(b.productName, "ar")
     );
-  }, [purchases, manualProducts]);
+  }, [purchases, manualProducts, hiddenProducts]);
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -126,6 +149,24 @@ export default function ProductsPage() {
       setIsDialogOpen(false);
     } catch (err: any) {
       setError(err.message || "فشل في إضافة الصنف");
+    }
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!productToDelete || !user) return;
+
+    try {
+      if (productToDelete.source === "manual") {
+        // Delete from manual products collection
+        await deleteProduct(productToDelete.id);
+      } else {
+        // Hide product from list (doesn't delete purchases)
+        await hideProduct(productToDelete.productName, user.uid);
+      }
+      setDeleteDialogOpen(false);
+      setProductToDelete(null);
+    } catch (err: any) {
+      setError(err.message || "فشل في حذف الصنف");
     }
   };
 
@@ -296,13 +337,16 @@ export default function ProductsPage() {
                 <th className="text-center px-4 py-3 text-sm font-semibold text-slate-700 w-40 border-b-2 border-slate-300">
                   سعر البيع
                 </th>
+                <th className="text-center px-4 py-3 text-sm font-semibold text-slate-700 w-16 border-b-2 border-slate-300 print:hidden">
+                  إجراءات
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {allProducts.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={4}
                     className="px-4 py-12 text-center text-slate-500"
                   >
                     لا توجد أصناف
@@ -327,6 +371,27 @@ export default function ProductsPage() {
                         {product.unitSellingPrice.toFixed(2)} ج.م
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-center border-b border-slate-200 print:hidden">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-red-600 focus:text-red-600 focus:bg-red-50 cursor-pointer"
+                            onClick={() => {
+                              setProductToDelete(product);
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="ml-2 h-4 w-4" />
+                            حذف الصنف
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
                   </tr>
                 ))
               )}
@@ -339,6 +404,35 @@ export default function ProductsPage() {
           <InvoiceFooter />
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد حذف الصنف</AlertDialogTitle>
+            <AlertDialogDescription>
+              هل أنت متأكد من حذف الصنف &quot;{productToDelete?.productName}&quot;؟
+              {productToDelete?.source === "purchase" && (
+                <>
+                  <br />
+                  <span className="text-slate-600">
+                    سيتم إخفاء الصنف من القائمة فقط، المشتريات لن تتأثر.
+                  </span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row-reverse gap-2">
+            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteProduct}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {isLoading ? "جاري الحذف..." : "حذف"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Print Styles */}
       <style jsx global>{`

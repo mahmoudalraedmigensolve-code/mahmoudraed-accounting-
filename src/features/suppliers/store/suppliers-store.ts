@@ -3,8 +3,14 @@ import { Supplier, SupplierPayment } from "../types";
 import { suppliersService } from "../services/suppliers-service";
 import { useTenantsStore } from "@/features/tenants/store/tenants-store";
 
-// Helper to get current tenant ID
-const getTenantId = () => useTenantsStore.getState().currentTenant?.id;
+// Helper to get current tenant ID - throws error if not available
+const getTenantId = (): string => {
+  const tenantId = useTenantsStore.getState().currentTenant?.id;
+  if (!tenantId) {
+    throw new Error("Tenant ID is required. Please make sure you are logged in.");
+  }
+  return tenantId;
+};
 
 interface SuppliersState {
   suppliers: Supplier[];
