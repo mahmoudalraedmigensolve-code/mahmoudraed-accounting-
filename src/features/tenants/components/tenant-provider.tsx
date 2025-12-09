@@ -51,12 +51,8 @@ export function TenantProvider({
         return;
       }
 
-      // If tenant is already loaded and matches env, skip fetching
-      let tenant = currentTenant;
-      if (!tenant || tenant.id !== ENV_TENANT_ID) {
-        // Fetch tenant by ID from environment variable
-        tenant = await fetchTenantById(ENV_TENANT_ID);
-      }
+      // Always fetch fresh tenant data from Firebase to ensure cross-device sync
+      const tenant = await fetchTenantById(ENV_TENANT_ID);
 
       // If auth is required and user is authenticated, verify access
       if (requireAuth && isAuthenticated && user && tenant) {
@@ -144,7 +140,7 @@ export function TenantProvider({
     };
 
     initializeTenant();
-  }, [currentTenant, fetchTenantById, requireAuth, isAuthenticated, user]);
+  }, [fetchTenantById, requireAuth, isAuthenticated, user]);
 
   const handleSignOut = async () => {
     try {
