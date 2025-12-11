@@ -87,11 +87,19 @@ export default function SupplierStatementPage() {
     // Sort by date (oldest first)
     items.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    // Calculate running balance
+    // Calculate balance for each row:
+    // - For purchases (debit): show only that row's amount
+    // - For payments (credit): show remaining balance after payment (cumulative up to that point)
     let runningBalance = 0;
     items.forEach((item) => {
       runningBalance += item.debit - item.credit;
-      item.balance = runningBalance;
+      if (item.type === "payment") {
+        // For payments, show the remaining balance after this payment
+        item.balance = runningBalance;
+      } else {
+        // For purchases, show only this row's debit amount
+        item.balance = item.debit;
+      }
     });
 
     return items;
@@ -108,7 +116,8 @@ export default function SupplierStatementPage() {
     );
   }, [statement]);
 
-  const currentBalance = supplier?.totalBalance || (totals.totalDebit - totals.totalCredit);
+  // Total balance = Total Debit - Total Credit
+  const currentBalance = totals.totalDebit - totals.totalCredit;
 
   const handlePrint = useReactToPrint({
     contentRef: statementRef,
